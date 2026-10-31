@@ -1,6 +1,20 @@
 Apple Silicon Project Mu UEFI firmware 
 ===================================================
 
+> **Fork update: Apple M2 (T8112), MacBook Air 13" (J413).** This fork adds a scaffold for the base M2 SoC
+> (`Silicon/Apple/T811XFamilyPkg`) and for the 13" M2 MacBook Air (`Platform/MacBookAirMid2022Pkg`).
+>
+> - **Done:** both packages are copied from the M1 equivalents (`T810XFamilyPkg`, `MacBookAirMid2020Pkg`) and renamed for
+>   SoC id `0x8112`; new GUIDs; vGIC is the default (`AIC_BUILD=FALSE`); DART, USB-C and GPIO drivers added to the FDF;
+>   the firmware builds with `stuart_build` (CLANGPDB) into a ~31 MB `.fd`; build/install guide and bring-up checklist written.
+> - **Not done / not verified:** it has never been booted on hardware. Per-core interrupts, vGIC addresses, MMIO map,
+>   USB-C/DART counts and the FD base are M1 values or assumptions until checked against the ADT of a real Air
+>   (see [`T8112_BRINGUP_TODO.md`](Platform/MacBookAirMid2022Pkg/T8112_BRINGUP_TODO.md)). No keyboard/trackpad, Wi-Fi/Bluetooth,
+>   GPU or internal NVMe support; boot is from USB-C storage only.
+> - **Other chips:** M1 packages are unchanged and shared code (`AppleSiliconPkg`) was not modified. M3 and newer are
+>   not covered (`T8122FamilyPkg` is still a stub and AICv3 support is missing).
+> - **Guide:** [`Platform/MacBookAirMid2022Pkg/INSTALL.ru.md`](Platform/MacBookAirMid2022Pkg/INSTALL.ru.md) (Russian).
+
 ### Disclaimer
 
 I probably do not know what I'm doing 100%. It goes without saying, but *please* do not run this EFI implementation in any serious production environment. I assume no responsibility or liability for usage of the software and/or any issues that arise because of it.
