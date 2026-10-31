@@ -1,4 +1,4 @@
-Apple Silicon Project Mu UEFI firmware 
+Apple Silicon Project Mu UEFI firmware  
 ===================================================
 
 > **Fork update: Apple M2 (T8112), MacBook Air 13" (J413).** This fork adds a scaffold for the base M2 SoC
