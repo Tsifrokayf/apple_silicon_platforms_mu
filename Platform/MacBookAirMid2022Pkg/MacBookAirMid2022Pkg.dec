@@ -1,0 +1,12 @@
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = MacBookAirMid2022Pkg
+  PACKAGE_GUID                   = b2b5e445-1e57-414b-8052-ba04c322070d
+  PACKAGE_VERSION                = 1.0
+
+[Includes.common]
+  Include
+
+[Guids.common]
+  gMacBookAirMid2022PkgTokenSpaceGuid = { 0x9d0c8105, 0x4e3f, 0x4c72, { 0xa9, 0x93, 0x2d, 0x1f, 0xf9, 0x91, 0x66, 0xa0 } }
+
