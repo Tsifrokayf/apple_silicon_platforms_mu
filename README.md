@@ -1,4 +1,4 @@
-Apple Silicon Project Mu UEFI firmware
+Apple Silicon Project Mu UEFI firmware 
 ===================================================
 
 ### Disclaimer
@@ -60,7 +60,7 @@ or things like ACPI tables and SMBIOS information.
 Silicon/Apple/AppleSiliconPkg - code applicable to all platforms (things like general AIC and DART support). This is where the bulk of the code for this repository will
 end up going.
 ```
-
+ 
 ### Mu submodules used
 ```
 MU_BASECORE - the primary and most fundamental Mu submodule, provides the firmware base and supporting build infrastructure
