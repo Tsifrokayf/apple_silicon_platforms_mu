@@ -23,6 +23,33 @@ This repository is designed with a strong emphasis on code reuse for platforms w
 
 The UEFI implementation can boot off a external mass storage device off a USB-C port (note: not without hacks, this needs to be addressed), and the Windows loader initializes and successfully creates the RAMDisk, but hangs on the handoff between bootloader and kernel.
 
+### Supported platforms
+
+| Platform package | Machine | State |
+|------------------|---------|-------|
+| `Platform/MacBookAirMid2020Pkg` | MacBook Air (M1, 2020, J313) | upstream package |
+| `Platform/MacBookAirMid2022Pkg` | MacBook Air 13" (M2, 2022, J413) | **scaffold, builds, never booted on hardware** |
+
+`MacBookAirMid2022Pkg` and `Silicon/Apple/T811XFamilyPkg` were copied from the M1 Air / T810X packages. Many values
+(per-core interrupts, vGIC addresses, MMIO map, USB-C/DART counts, FD base) are M1 values or assumptions and must be
+checked against the ADT of a real machine. See
+[`Platform/MacBookAirMid2022Pkg/T8112_BRINGUP_TODO.md`](Platform/MacBookAirMid2022Pkg/T8112_BRINGUP_TODO.md) for the list and
+[`Platform/MacBookAirMid2022Pkg/INSTALL.ru.md`](Platform/MacBookAirMid2022Pkg/INSTALL.ru.md) (Russian) for the
+build/install guide.
+
+### Quick build (M2 Air)
+
+```
+pip install -r pip-requirements.txt "setuptools<81"
+export CLANGPDB_BIN=/usr/lib/llvm-18/bin/ CLANGPDB_AARCH64_PREFIX=aarch64-linux-gnu-
+stuart_setup  -c Platform/MacBookAirMid2022Pkg/PlatformBuild.py TOOL_CHAIN_TAG=CLANGPDB
+stuart_update -c Platform/MacBookAirMid2022Pkg/PlatformBuild.py TOOL_CHAIN_TAG=CLANGPDB
+stuart_build  -c Platform/MacBookAirMid2022Pkg/PlatformBuild.py TOOL_CHAIN_TAG=CLANGPDB
+```
+
+The output is `Build/MacBookAirMid2022-AARCH64/DEBUG_CLANGPDB/FV/J413MACBOOKAIRMID2022_EFI.fd`. General build notes are in
+[`Docs/BUILDING.md`](Docs/BUILDING.md).
+
 ### Layout (for non Mu submodules)
 ```
 Platform/ - code specific to a given platform (MacBook Air, MacBook Pro, Mac Studio, Mac Mini, etc.)
