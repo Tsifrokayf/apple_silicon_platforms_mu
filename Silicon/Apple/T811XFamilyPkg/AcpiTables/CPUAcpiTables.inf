@@ -12,12 +12,12 @@
 [Defines]
   INF_VERSION                    = 0x00010005
   BASE_NAME                      = CPUAcpiTables
-  FILE_GUID                      = c80b64ae-33bf-4d2e-959f-a3e2ddd95cc2
+  FILE_GUID                      = d1430d86-24a4-4c2f-8f22-d24376e2e888
   MODULE_TYPE                    = USER_DEFINED
   VERSION_STRING                 = 1.0
 
 [Sources]
-  GTDT.aslc
+  # GTDT comes from AppleSiliconPkg/AcpiTables/GenericAcpiTables.inf; listing it here installed it twice.
   MADT_Static.aslc
   PPTT.aslc
 

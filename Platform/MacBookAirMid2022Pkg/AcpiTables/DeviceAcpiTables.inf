@@ -12,7 +12,7 @@
 [Defines]
   INF_VERSION                    = 0x00010005
   BASE_NAME                      = DeviceAcpiTables
-  FILE_GUID                      = 0069e5d9-7c88-48b9-bfe6-43c1e7df96d9
+  FILE_GUID                      = 3ff4732c-9411-4e10-a10c-8b39df282e83
   MODULE_TYPE                    = USER_DEFINED
   VERSION_STRING                 = 1.0
 
@@ -20,7 +20,7 @@
   #Bert.asl
   DBG2.aslc
   #EINJ.asl
-  #DSDT.asl
+  DSDT.asl
 
 [Packages]
   ArmPkg/ArmPkg.dec
