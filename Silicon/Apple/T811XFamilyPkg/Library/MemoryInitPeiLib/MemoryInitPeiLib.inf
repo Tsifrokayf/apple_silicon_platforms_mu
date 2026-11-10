@@ -30,6 +30,7 @@
   AppleSiliconPkg/AppleSiliconPkg.dec
 
 [LibraryClasses]
+  BaseLib
   DebugLib
   HobLib
   ArmMmuLib
@@ -46,6 +47,9 @@
   gArmTokenSpaceGuid.PcdFdSize
 
   gAppleSiliconPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize
+  gAppleSiliconPkgTokenSpaceGuid.PcdBootArgsPointer
+  gAppleSiliconPkgTokenSpaceGuid.PcdAdtPointer
+  gAppleSiliconPkgTokenSpaceGuid.PcdAdtMaxSize
 
   gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiACPIReclaimMemory
   gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiACPIMemoryNVS

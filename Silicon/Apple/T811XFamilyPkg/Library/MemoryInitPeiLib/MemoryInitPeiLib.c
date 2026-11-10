@@ -18,6 +18,7 @@
 #include <PiPei.h>
 
 #include <Library/ArmMmuLib.h>
+#include <Library/BaseLib.h>
 #include <Library/ArmPlatformLib.h>
 #include <Library/DebugLib.h>
 #include <Library/HobLib.h>
@@ -59,7 +60,9 @@ STATIC VOID InitMmu(IN ARM_MEMORY_REGION_DESCRIPTOR *MemoryTable)
 }
 
 //borrowed from edk2-platforms:Armada7k8kMemoryInitPeiLib
-STATIC VOID ReserveMemoryRegion ( IN EFI_PHYSICAL_ADDRESS ReservedRegionBase, IN UINT32 ReservedRegionSize)
+// Returns FALSE when no single System Memory HOB covers the region (e.g. it is already reserved,
+// straddles two HOBs or lies outside RAM), so callers that depend on the hole can fail loudly.
+STATIC BOOLEAN ReserveMemoryRegion ( IN EFI_PHYSICAL_ADDRESS ReservedRegionBase, IN UINT64 ReservedRegionSize)
 {
   EFI_RESOURCE_ATTRIBUTE_TYPE  ResourceAttributes;
   EFI_PHYSICAL_ADDRESS         ReservedRegionTop;
@@ -87,7 +90,16 @@ STATIC VOID ReserveMemoryRegion ( IN EFI_PHYSICAL_ADDRESS ReservedRegionBase, IN
       ResourceLength = NextHob.ResourceDescriptor->ResourceLength;
       ResourceTop = NextHob.ResourceDescriptor->PhysicalStart + ResourceLength;
 
-      if (ReservedRegionBase == NextHob.ResourceDescriptor->PhysicalStart) {
+      if ((ReservedRegionBase == NextHob.ResourceDescriptor->PhysicalStart) &&
+          (ReservedRegionTop == ResourceTop)) {
+        //
+        // Exact match: retype the HOB instead of leaving a zero-length System Memory HOB behind.
+        //
+        NextHob.ResourceDescriptor->ResourceType      = EFI_RESOURCE_MEMORY_RESERVED;
+        NextHob.ResourceDescriptor->ResourceAttribute = 0;
+        return TRUE;
+
+      } else if (ReservedRegionBase == NextHob.ResourceDescriptor->PhysicalStart) {
         //
         // This region starts right at the start of the reserved region, so we
         // can simply move its start pointer and reduce its length by the same
@@ -130,10 +142,12 @@ STATIC VOID ReserveMemoryRegion ( IN EFI_PHYSICAL_ADDRESS ReservedRegionBase, IN
         ReservedRegionBase,
         ReservedRegionSize);
 
-      break;
+      return TRUE;
     }
     NextHob.Raw = GET_NEXT_HOB (NextHob);
   }
+
+  return FALSE;
 }
 
 
@@ -271,9 +285,75 @@ EFI_STATUS EFIAPI MemoryPeim(IN EFI_PHYSICAL_ADDRESS UefiMemoryBase, IN UINT64 U
     }
 
     ASSERT (Found);
+
+    //
+    // RAM starts at boot_args phys_base, which is where the first-stage loader (m1n1) itself lives:
+    // its image, the original ADT, and its bump heap, from which the FD was allocated. So everything
+    // between phys_base and the FD belongs to the loader, and its page tables and secondary-CPU
+    // stacks there stay live until the OS starts those CPUs. Reserve it rather than hand it out.
+    // The loader's heap above the FD (allocations made after loading us, e.g. the FDT) is NOT
+    // described by anything we receive, so it cannot be reserved here.
+    //
+    {
+      EFI_PHYSICAL_ADDRESS  LoaderBase = PcdGet64 (PcdSystemMemoryBase);
+      EFI_PHYSICAL_ADDRESS  LoaderTop  = PcdGet64 (PcdFdBaseAddress);
+
+      // If the UEFI region had to go below the FD it already overwrote loader memory; keep it usable.
+      if ((UefiMemoryBase >= LoaderBase) && (UefiMemoryBase < LoaderTop)) {
+        DEBUG ((DEBUG_ERROR, "MemoryInitPeiLib: UEFI region 0x%lx is below the FD, loader memory clobbered\n", UefiMemoryBase));
+        LoaderTop = UefiMemoryBase;
+      }
+
+      if (LoaderTop > LoaderBase) {
+        DEBUG ((DEBUG_INFO, "MemoryInitPeiLib: reserving loader memory 0x%lx..0x%lx\n", LoaderBase, LoaderTop));
+        if (!ReserveMemoryRegion (LoaderBase, LoaderTop - LoaderBase)) {
+          DEBUG ((DEBUG_ERROR, "MemoryInitPeiLib: failed to reserve loader memory\n"));
+        }
+      }
+    }
   }
-  
-  //reserve secondary stacks carveouts passed into cpm-impl-reg 
+
+  //
+  // PrePi copied boot_args and the ADT to fixed addresses that DXE drivers keep reading through
+  // AppleDTLib/SimpleFbDxe; nothing tracks that memory, so DXE or the OS could otherwise allocate
+  // over it. Reserve the whole bounded span (PrePi enforces the bound) as EfiReservedMemoryType:
+  // no runtime driver reads it, so it needs no virtual mapping, but it must never be reused.
+  //
+  if (FixedPcdGet32 (PcdAdtMaxSize) != 0) {
+    EFI_PHYSICAL_ADDRESS  CopyBase = FixedPcdGet64 (PcdBootArgsPointer);
+    UINT64                CopySize = FixedPcdGet64 (PcdAdtPointer) + FixedPcdGet32 (PcdAdtMaxSize) - CopyBase;
+
+    DEBUG ((DEBUG_INFO, "MemoryInitPeiLib: reserving boot_args/ADT copy 0x%lx..0x%lx\n", CopyBase, CopyBase + CopySize));
+    if (!ReserveMemoryRegion (CopyBase, CopySize)) {
+      DEBUG ((DEBUG_ERROR, "MemoryInitPeiLib: boot_args/ADT copy 0x%lx..0x%lx is not inside free RAM, halting\n", CopyBase, CopyBase + CopySize));
+      CpuDeadLoop ();
+    }
+  }
+
+  //
+  // iBoot's framebuffer normally lies above phys_base + mem_size and so is outside the System Memory
+  // HOB. Describe it as reserved so the OS sees it as in-use memory (EfiReservedMemoryType, UC/WC)
+  // rather than an unknown hole, and punch it out if a future layout ever puts it inside RAM.
+  //
+  if (PcdGet64 (PcdFrameBufferSize) != 0) {
+    EFI_PHYSICAL_ADDRESS  FbBase = PcdGet64 (PcdFrameBufferAddress);
+    UINT64                FbSize = PcdGet64 (PcdFrameBufferSize);
+
+    if ((FbBase < SystemMemoryTop) && (FbBase + FbSize > PcdGet64 (PcdSystemMemoryBase))) {
+      if (!ReserveMemoryRegion (FbBase, FbSize)) {
+        DEBUG ((DEBUG_ERROR, "MemoryInitPeiLib: framebuffer 0x%lx overlaps RAM but could not be reserved\n", FbBase));
+      }
+    } else {
+      BuildResourceDescriptorHob (
+        EFI_RESOURCE_MEMORY_RESERVED,
+        EFI_RESOURCE_ATTRIBUTE_UNCACHEABLE | EFI_RESOURCE_ATTRIBUTE_WRITE_COMBINEABLE,
+        FbBase,
+        FbSize
+        );
+    }
+  }
+
+  //reserve secondary stacks carveouts passed into cpm-impl-reg
   for(int i = 0; i < PcdGet32(PcdCoreCount); i++){
     CHAR8 CpuNodeName[14];
     UINTN CarveoutLength = 0;

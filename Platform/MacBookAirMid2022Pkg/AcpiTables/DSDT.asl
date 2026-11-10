@@ -5,7 +5,7 @@
  * Abstract:
  *     Differentiated System Description Table for the MacBook Air (M2, 2022, 13-inch, J413).
  *
- *     Minimal on purpose: processors and the two USB host controllers. Everything else on the
+ *     Minimal on purpose: processors and the second USB host controller. Everything else on the
  *     board has no Windows driver yet and is left undescribed.
  *
  *     NOT VERIFIED ON HARDWARE. MMIO bases come from the Asahi Linux device tree (t8112.dtsi).
@@ -35,16 +35,11 @@ DefinitionBlock("DSDT.aml", "DSDT", 0x02, "Apple ", "J413    ", 0x8112) {
         // its DARTs in bypass or identity-mapped: Windows has no driver for either.
         // _CCA is 1 because the generic xHCI driver is told DMA is cache-coherent.
         //
-        Device(USB0) {
-            Name(_HID, "PNP0D10")
-            Name(_UID, 0)
-            Name(_CCA, 1)
-            Name(_CRS, ResourceTemplate() {
-                QWordMemory(ResourceConsumer, PosDecode, MinFixed, MaxFixed, NonCacheable, ReadWrite,
-                    0x0, 0x382280000, 0x382287FFF, 0x0, 0x8000)
-                Interrupt(ResourceConsumer, Level, ActiveHigh, Exclusive) { 960 }
-            })
-        }
+        //
+        // The first controller (DWC3 at 0x382280000, vGIC INTID 960) is deliberately not described:
+        // it is the port the m1n1 hypervisor uses in device mode for its proxy and debug link, and
+        // the firmware leaves it and its DARTs alone. A Windows xHCI driver on it would cut that link.
+        //
         Device(USB1) {
             Name(_HID, "PNP0D10")
             Name(_UID, 1)

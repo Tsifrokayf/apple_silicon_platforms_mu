@@ -20,6 +20,9 @@
   gAppleSiliconPkgTokenSpaceGuid.PcdAppleSartVersion|2
   gAppleSiliconPkgTokenSpaceGuid.PcdBootArgsPointer|0x840000000
   gAppleSiliconPkgTokenSpaceGuid.PcdAdtPointer|0x840004000
+  # Generous bound (real ADTs are far smaller); PrePi halts if exceeded, MemoryInitPeiLib reserves
+  # 0x840000000..0x840404000 so DXE/the OS never treat the boot_args/ADT copies as free RAM.
+  gAppleSiliconPkgTokenSpaceGuid.PcdAdtMaxSize|0x400000
 !if $(USES_MAC_CPU) == TRUE
   gAppleSiliconPkgTokenSpaceGuid.PcdSmbiosCpuIdentifier|"T8112"
   gAppleSiliconPkgTokenSpaceGuid.PcdSmbiosCpuModel|"Apple M2"

@@ -5,7 +5,9 @@
  */
 
 #include <Uefi.h>
+#include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/PcdLib.h>
 #include <Library/DebugAgentLib.h>
 #include <Library/DebugLib.h>
 #include <Library/AppleDTLib.h>
@@ -23,6 +25,35 @@ EarlySetup (
 {
 
   struct boot_args *BootArgs = (struct boot_args *)BootArgsAddr;
+
+  //
+  // With a bounded ADT copy the SoC's MemoryInitPeiLib reserves a fixed region for both copies.
+  // Check before copying: an oversized ADT would spill past that reservation, and a destination
+  // inside the loader's memory (everything from phys_base up to the end of the FD is the loader's
+  // image, its heap and the FD itself) or outside RAM would corrupt state that is still live or fault.
+  // Returning FALSE is not enough here because the caller ignores it, so halt.
+  //
+  if (FixedPcdGet32 (PcdAdtMaxSize) != 0) {
+    UINT64  CopyBase   = (UINT64)(UINTN)PcdBootArgsDest;
+    UINT64  CopyTop    = (UINT64)(UINTN)PcdAdtDest + FixedPcdGet32 (PcdAdtMaxSize);
+    UINT64  RamTop     = BootArgs->phys_base + BootArgs->mem_size;
+    UINT64  LoaderTop  = PcdGet64 (PcdFdBaseAddress) + FixedPcdGet32 (PcdFdSize);
+
+    if ((sizeof (struct boot_args) > (UINT64)(UINTN)PcdAdtDest - CopyBase) ||
+        (BootArgs->devtree_size > FixedPcdGet32 (PcdAdtMaxSize)) ||
+        (CopyBase < BootArgs->phys_base) || (CopyTop > RamTop) ||
+        (CopyBase < LoaderTop))
+    {
+      DEBUG ((
+        DEBUG_ERROR,
+        "EarlySetup: cannot place boot_args/ADT copy at 0x%llx..0x%llx (ADT size 0x%x, max 0x%x; "
+        "RAM 0x%llx..0x%llx; loader+FD end 0x%llx). Halting.\n",
+        CopyBase, CopyTop, BootArgs->devtree_size, FixedPcdGet32 (PcdAdtMaxSize),
+        BootArgs->phys_base, RamTop, LoaderTop
+        ));
+      CpuDeadLoop ();
+    }
+  }
 
   CopyMem(PcdBootArgsDest, BootArgsAddr, sizeof(struct boot_args));
   CopyMem(PcdAdtDest, (VOID*)BootArgs->devtree - BootArgs->virt_base + BootArgs->phys_base, BootArgs->devtree_size);

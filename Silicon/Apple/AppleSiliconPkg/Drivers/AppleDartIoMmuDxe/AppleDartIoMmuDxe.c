@@ -308,10 +308,121 @@ STATIC VOID AppleDartT8020TlbFlush(VOID *DartInformation) {
 STATIC VOID AppleDartT8110TlbFlush(VOID *DartInformation) {
     APPLE_DART_INFO *DartInfoStruct = (APPLE_DART_INFO *)DartInformation;
     __asm__("dsb sy");
-    MmioWrite32(DartInfoStruct->BaseAddress + DART_T8110_TLB_CMD_FLUSH_ALL, DART_T8110_TLB_CMD_FLUSH_ALL);
+    //
+    // The command goes to TLB_CMD (0x80); its OP field (bits 10:8) is 0 for "flush all".
+    // This used to write BIT(8) to offset 0x100, which is the ERROR register, so nothing was
+    // flushed (the same slip is in the U-Boot driver these definitions came from).
+    //
+    MmioWrite32(DartInfoStruct->BaseAddress + DART_T8110_TLB_CMD, DART_T8110_TLB_CMD_OP_FLUSH_ALL);
     while((MmioRead32(DartInfoStruct->BaseAddress + DART_T8110_TLB_CMD)) & DART_T8110_TLB_CMD_BUSY) {
         continue;
     }
+}
+
+//
+// Identity map for T8110-style DARTs that cannot be put in bypass.
+//
+// The OS that boots after this firmware (Windows) has no DART driver and no way to be told about
+// one, so its xHCI driver programs physical addresses into the controller. That only works if the
+// DART either bypasses or translates every address to itself. This builds one static table set
+// with IOVA == PA for the whole range RAM can occupy on these SoCs and points every stream of the
+// DART at it. The tables are shared by all DARTs and live in reserved memory, because they must
+// stay intact for as long as the OS runs.
+//
+// Table format (T8110, 16K pages, FOUR_LEVEL clear): L1 index = IOVA[35:25], L2 index =
+// IOVA[24:14]; an entry holds (PA >> 14) in bits 39:10 and VALID in bit 0; a leaf also carries the
+// sub-page end field (bits 51:40) set to 0xfff for a whole page.
+//
+// NOT VERIFIED ON HARDWARE: taken from the Asahi Linux and m1n1 DART drivers.
+//
+#define DART_T8110_IDMAP_BASE     0x800000000ULL   // start of RAM on Apple Silicon Macs
+#define DART_T8110_IDMAP_SIZE     0x800000000ULL   // up to IOVA 2^36, the reach of one TTBR
+#define DART_T8110_L2_SPAN        SIZE_32MB
+#define DART_T8110_ENTRIES        (DART_PAGE_SIZE / sizeof (UINT64))
+#define DART_T8110_PTE_VALID      BIT0
+#define DART_T8110_PTE_SP_END_ALL (0xFFFULL << 40)
+
+STATIC UINT64 *mT8110IdentityL1 = NULL;
+
+STATIC EFI_STATUS AppleDartT8110BuildIdentityTables(VOID) {
+    UINTN  NumL2 = DART_T8110_IDMAP_SIZE / DART_T8110_L2_SPAN;
+    UINTN  TotalSize = (NumL2 + 1) * DART_PAGE_SIZE;
+    UINT64 *Tables;
+
+    if (mT8110IdentityL1 != NULL) {
+        return EFI_SUCCESS;
+    }
+
+    Tables = AllocateAlignedReservedPages (EFI_SIZE_TO_PAGES (TotalSize), DART_PAGE_SIZE);
+    if (Tables == NULL) {
+        return EFI_OUT_OF_RESOURCES;
+    }
+    ZeroMem (Tables, DART_PAGE_SIZE);
+
+    for (UINTN N = 0; N < NumL2; N++) {
+        UINT64 *L2 = (UINT64 *)((UINTN)Tables + (N + 1) * DART_PAGE_SIZE);
+        UINT64 SpanBase = DART_T8110_IDMAP_BASE + N * (UINT64)DART_T8110_L2_SPAN;
+
+        for (UINTN I = 0; I < DART_T8110_ENTRIES; I++) {
+            UINT64 Pa = SpanBase + I * DART_PAGE_SIZE;
+            L2[I] = (Pa >> 4) | DART_T8110_PTE_SP_END_ALL | DART_T8110_PTE_VALID;
+        }
+        Tables[(SpanBase >> 25) & (DART_T8110_ENTRIES - 1)] = ((UINT64)(UINTN)L2 >> 4) | DART_T8110_PTE_VALID;
+    }
+    WriteBackDataCacheRange (Tables, TotalSize);
+
+    mT8110IdentityL1 = Tables;
+    return EFI_SUCCESS;
+}
+
+STATIC EFI_STATUS AppleDartT8110SetIdentityMap(APPLE_DART_INFO *Dart) {
+    EFI_STATUS Status;
+    UINT32     Params1 = MmioRead32 (Dart->BaseAddress + DART_T8110_PARAMS1);
+    UINT32     Params3 = MmioRead32 (Dart->BaseAddress + DART_T8110_PARAMS3);
+    UINT32     PageShift = (Params1 >> 24) & 0xF;
+    UINT32     VaWidth = (Params3 >> 16) & 0x3F;
+    INT32      Sid;
+
+    if (PageShift != 14) {
+        DEBUG ((DEBUG_ERROR, "%a: DART 0x%llx page shift %u is not 16K, cannot identity map\n", __FUNCTION__, Dart->BaseAddress, PageShift));
+        return EFI_UNSUPPORTED;
+    }
+    if (VaWidth < 36) {
+        DEBUG ((DEBUG_ERROR, "%a: DART 0x%llx IOVA width %u cannot reach RAM, cannot identity map\n", __FUNCTION__, Dart->BaseAddress, VaWidth));
+        return EFI_UNSUPPORTED;
+    }
+    if (VaWidth > 36) {
+        // Linux switches such DARTs to a four-level walk. Whether the three-level walk used here
+        // still decodes IOVA[35:25] as the first index on them is not known.
+        DEBUG ((DEBUG_WARN, "%a: DART 0x%llx IOVA width %u > 36, table layout is unverified\n", __FUNCTION__, Dart->BaseAddress, VaWidth));
+    }
+    if ((MmioRead32 (Dart->BaseAddress + DART_T8110_PROTECT) & DART_T8110_PROTECT_TTBR_TCR) != 0) {
+        DEBUG ((DEBUG_ERROR, "%a: DART 0x%llx is locked, cannot identity map\n", __FUNCTION__, Dart->BaseAddress));
+        return EFI_ACCESS_DENIED;
+    }
+
+    Status = AppleDartT8110BuildIdentityTables ();
+    if (EFI_ERROR (Status)) {
+        return Status;
+    }
+
+    for (Sid = 0; Sid < Dart->Nsid; Sid++) {
+        MmioWrite32 (Dart->BaseAddress + DART_TTBR (*Dart, Sid, 0),
+                     (UINT32)((((UINT64)(UINTN)mT8110IdentityL1) >> 14) << 2) | Dart->TtbrIsValid);
+    }
+    for (Sid = 0; Sid < Dart->Nsid; Sid += 32) {
+        MmioWrite32 (Dart->BaseAddress + DART_SID_ENABLE (*Dart, Sid / 32), 0xFFFFFFFF);
+    }
+    // Clear any latched error and unmask error reporting, as the reference drivers do on reset.
+    MmioWrite32 (Dart->BaseAddress + DART_T8110_ERROR, MmioRead32 (Dart->BaseAddress + DART_T8110_ERROR));
+    MmioWrite32 (Dart->BaseAddress + DART_T8110_ERROR_MASK, 0);
+
+    Dart->TlbFlush ((VOID *)Dart);
+
+    for (Sid = 0; Sid < Dart->Nsid; Sid++) {
+        MmioWrite32 (Dart->BaseAddress + DART_TCR (*Dart, Sid), Dart->TcrTranslateEnable);
+    }
+    return EFI_SUCCESS;
 }
 
 EFI_STATUS EFIAPI 
@@ -466,6 +577,18 @@ AppleDartIoMmuDxeInitialize(
             //
             // Bypass mode means the controllers can just DMA right into physical memory so we skip installing the IOMMU protocol.
             //
+        }
+        else if (AsciiStrCmp(CompatibleStr ,"dart,t8110") == 0) {
+            //
+            // No bypass: translate every address to itself instead, so that this firmware's xHCI
+            // driver and an OS without a DART driver can both keep using physical addresses.
+            //
+            EFI_STATUS IdMapStatus = AppleDartT8110SetIdentityMap(&DartInfo[DartIndex]);
+            DEBUG((EFI_ERROR(IdMapStatus) ? DEBUG_ERROR : DEBUG_INFO,
+                   "AppleDartIoMmuDxeInitialize: USB DART%d has no bypass mode, identity map: %r\n", DartIndex, IdMapStatus));
+        }
+        else {
+            DEBUG((DEBUG_ERROR, "AppleDartIoMmuDxeInitialize: USB DART%d has no bypass mode and no identity map support, DMA will fault\n", DartIndex));
         }
 
         //
