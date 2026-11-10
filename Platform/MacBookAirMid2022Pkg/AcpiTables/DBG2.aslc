@@ -87,8 +87,14 @@ STATIC DBG2_TABLE Dbg2 = {
     // Kernel Debug Port
     DBG2_DEBUG_PORT_DDI (
       DBG2_NUMBER_OF_GENERIC_ADDRESS_REGISTERS,
-      0xA, /* SAM5250, seems to be more or less compatible with the 8900 UART (which isn't 5250 based but is close enough for WinDbg) */
-      FixedPcdGet64 (PcdAppleUartBase),
+      //
+      // ARM PL011 (DBG2 serial subtype 0x0003). There is no PL011 on this machine: the m1n1_windows
+      // hypervisor emulates one at this address (hv_map_vpl011, the page at ITS_BASE_36_BIT in
+      // src/hv_vgic.c) because the Apple UART is not a type the Windows kernel debugger supports.
+      // This only works under that hypervisor (AIC_BUILD=FALSE). Keep the address in sync with it.
+      //
+      0x3,
+      0xF20000000,
       SERIAL_PORT_8900_UART_ADDR_SIZE,
       APPLE_8900_UART_STRING
       ),
