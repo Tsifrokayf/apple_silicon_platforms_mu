@@ -37,8 +37,8 @@ Values already confirmed from `m1n1_windows`: `EARLY_UART_BASE` for `T8112` is `
 ## 2. Interrupt controller
 
 * `AIC_BUILD = FALSE`: the firmware expects a vGIC provided by the `m1n1_windows` hypervisor.
-* The vGIC in `m1n1_windows/src/hv_vgic.c` still has `TODO: do the AIC operation associated with this`
-  in the redistributor enable/disable/pending handlers. That is the first code task.
+* The vGIC interrupt state machine was rewritten (`hv_vgic_core.c`, branch `vgic-state-machine` of the
+  `m1n1_windows` fork) and has a host test. Remaining work is listed in `WINDOWS_BOOT_MAP.ru.md`.
 * The AIC version used by T8112 (v1 vs v2) is not confirmed. m1n1 detects it from the ADT `compatible`.
   The native AIC DXE driver says AICv2 is finished and AICv1 is in progress.
 
