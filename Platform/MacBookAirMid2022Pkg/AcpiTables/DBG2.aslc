@@ -37,7 +37,9 @@
 #define DBG2_NAMESPACESTRING_FIELD_SIZE            10
 #define SERIAL_PORT_8900_UART_ADDR_SIZE           0x1000
 
-#define APPLE_8900_UART_STRING     {'\\', '_', 'S', 'B', '.', 'C', 'O', 'M', '0', '\0'}
+// "." = no ACPI namespace device for this port: the DSDT defines none (it used to name \_SB.COM0,
+// which does not exist).
+#define APPLE_8900_UART_STRING     {'.', '\0'}
 
 typedef struct {
   EFI_ACPI_DBG2_DEBUG_DEVICE_INFORMATION_STRUCT Dbg2Device;
